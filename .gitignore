@@ -1,5 +1,6 @@
 # Ignore Mac system files
 .DS_Store
+build
 
 # Ignore pip dist folder
 # Ignore egg-info

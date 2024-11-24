@@ -1,6 +1,6 @@
 # @auto-fold regex /^\s*if/ /^\s*else/ /^\s*def/
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*- 
+# -*- coding: utf-8 -*-
 from copy import deepcopy
 
 import emcee
@@ -38,27 +38,47 @@ dmax = temp_table.shape[0]
 
 
 def set_temp_ladder(ntemps, ndims, temp_table=temp_table):
-    tstep = temp_table[ndims-1]
+    tstep = temp_table[ndims - 1]
     if ndims > dmax:
         # An approximation to the temperature step at large dimension
-        tstep = 1.0 + 2.0*np.sqrt(np.log(4.0))/np.sqrt(ndims)
+        tstep = 1.0 + 2.0 * np.sqrt(np.log(4.0)) / np.sqrt(ndims)
 
-    return np.exp(np.linspace(0, -(ntemps-1)*np.log(tstep), ntemps))
+    return np.exp(np.linspace(0, -(ntemps - 1) * np.log(tstep), ntemps))
 
 
 class PTSampler(object):
-    def __init__(self, nwalkers, ndim, log_likelihood_fn, log_prior_fn,
-                 pool=None, moves=None, backend=None, vectorize=False,
-                 blobs_dtype=None, parameter_names=None, logl_args=None,
-                 logl_kwargs=None, logp_args=None, logp_kwargs=None,
-                 ntemps=None, betas=None, adaptative=True, a=None,
-                 postargs=None, threads=None, live_dangerously=None,
-                 runtime_sortingfn=None,
-                 config_adaptation_halflife=1000,
-                 config_adaptation_rate=100,
-                 config_adaptation_decay=0):
+    def __init__(
+        self,
+        nwalkers,
+        ndim,
+        log_likelihood_fn,
+        log_prior_fn,
+        pool=None,
+        moves=None,
+        backend=None,
+        vectorize=False,
+        blobs_dtype=None,
+        parameter_names=None,
+        logl_args=None,
+        logl_kwargs=None,
+        logp_args=None,
+        logp_kwargs=None,
+        ntemps=None,
+        betas=None,
+        adaptative=True,
+        a=None,
+        postargs=None,
+        threads=None,
+        live_dangerously=None,
+        runtime_sortingfn=None,
+        reset_backend=False,
+        config_adaptation_halflife=1000,
+        config_adaptation_rate=100,
+        config_adaptation_decay=0,
+    ):
         """
-        Initializes the sampler with the specified parameters for a Markov Chain Monte Carlo (MCMC) process. This setup includes defining the number of walkers, dimensions, likelihood and prior functions, and various configuration options for the sampling process.
+        Initializes the sampler with the specified parameters for a Markov Chain Monte Carlo (MCMC) process.
+        This setup includes defining the number of walkers, dimensions, likelihood and prior functions, and various configuration options for the sampling process.
 
         Args:
             nwalkers (int): The number of walkers in the ensemble.
@@ -98,11 +118,16 @@ class PTSampler(object):
 
         self.ll_kwargs_ = logl_kwargs or {}
         self.lp_kwargs_ = logp_kwargs or {}
-        
+
         ######################################################
         # Warn about deprecated arguments
         deprecated_args = [postargs, threads, runtime_sortingfn, live_dangerously]
-        deprecated_args_str = ['postargs', 'threads', 'runtime_sortingfn', 'live_dangerously']
+        deprecated_args_str = [
+            "postargs",
+            "threads",
+            "runtime_sortingfn",
+            "live_dangerously",
+        ]
 
         if a is not None:
             deprecation_warning("The 'a' argument is deprecated, use 'moves' instead")
@@ -110,11 +135,11 @@ class PTSampler(object):
         for arg, arg_str in zip(deprecated_args, deprecated_args_str):
             if arg is not None:
                 deprecation_warning(f"The '{arg_str}' argument is deprecated")
-        
 
         # Beta ladder initialization
         self.ntemps = ntemps or 5
         self.betas = betas if betas is not None else set_temp_ladder(self.ntemps, ndim)
+        
         #####################################################
         # Initialize instance variables
         self.nwalkers = nwalkers
@@ -122,7 +147,7 @@ class PTSampler(object):
         self.lp_ = log_prior_fn
         self.ll_ = log_likelihood_fn
 
-        self.n_swap_accept = np.zeros(ntemps-1)
+        self.n_swap_accept = np.zeros(ntemps - 1)
         self.time0 = 0
         self.nglobal = 0
         self.ratios = None
@@ -134,65 +159,135 @@ class PTSampler(object):
         self.z_num_grid = 10001
         self.z_num_simulations = 1000
         self.adaptative = adaptative
-        self.config_adaptation_halflife = config_adaptation_halflife  # adaptations reduced by half at this time
+        self.config_adaptation_halflife = (
+            config_adaptation_halflife  # adaptations reduced by half at this time
+        )
         self.config_adaptation_rate = config_adaptation_rate  # smaller, faster
         self.select_decay(option=config_adaptation_decay)
+        
         # Default values for lists
-        #default_list = lambda lst, size, default: [default for _ in range(size)] if lst is None else lst
-        self.vectorize = [False for _ in range(self.ntemps)] if vectorize is False else vectorize
-        #self.moves = default_list(moves, self.ntemps, None)
-        #self.blobs_dtype = default_list(blobs_dtype, self.ntemps, None)
-        #self.backend = default_list(backend, self.ntemps, None)
+        # default_list = lambda lst, size, default: [default for _ in range(size)] if lst is None else lst
+        self.vectorize = (
+            [False for _ in range(self.ntemps)] if vectorize is False else vectorize
+        )
+        # self.moves = default_list(moves, self.ntemps, None)
+        # self.blobs_dtype = default_list(blobs_dtype, self.ntemps, None)
+        # self.backend = default_list(backend, self.ntemps, None)
 
         self.moves = moves if moves is not None else [None] * self.ntemps
-        self.blobs_dtype = blobs_dtype if blobs_dtype is not None else [None] * self.ntemps
+        self.blobs_dtype = (
+            blobs_dtype if blobs_dtype is not None else [None] * self.ntemps
+        )
         self.backend = backend if backend is not None else [None] * self.ntemps
 
-
         ## BACKEND
-        #self.backend = Backend() if backend is None else backend
+        # self.backend = Backend() if backend is None else backend
         # Deal with re-used backends
         # Check the backend shape
         #########
         # Probability function wrappers
-        self.my_probs_fn = np.array([PTWrapper(self.ll_, self.lp_, b, loglargs=self.ll_args_,
-                                  logpargs=self.lp_args_, loglkwargs=self.ll_kwargs_,
-                                  logpkwargs=self.lp_kwargs_) for b in self.betas])
+        self.my_probs_fn = np.array(
+            [
+                PTWrapper(
+                    self.ll_,
+                    self.lp_,
+                    b,
+                    loglargs=self.ll_args_,
+                    logpargs=self.lp_args_,
+                    loglkwargs=self.ll_kwargs_,
+                    logpkwargs=self.lp_kwargs_,
+                )
+                for b in self.betas
+            ]
+        )
 
-        self.sampler = np.array([emcee.EnsembleSampler(self.nwalkers, self.ndim,
-                        self.my_probs_fn[t], pool=self.pool,
-                        moves=self.moves[t], backend=self.backend[t],
-                        vectorize=self.vectorize[t], blobs_dtype=self.blobs_dtype[t],
-                        ) for t in range(self.ntemps)])
+        # self.sampler = np.array([emcee.EnsembleSampler(self.nwalkers, self.ndim,
+        #                 self.my_probs_fn[t], pool=self.pool,
+        #                 moves=self.moves[t], backend=self.backend[t],
+        #                 vectorize=self.vectorize[t], blobs_dtype=self.blobs_dtype[t],
+        #                 ) for t in range(self.ntemps)])
+
+        # Initialize samplers and load last states if available
+        self.sampler = []
+        self.last_states = []
+        for t in range(self.ntemps):
+            backend_t = self.backend[t]
+
+            if reset_backend and backend_t is not None:
+                backend_t.reset(nwalkers, ndim)
+
+            sampler_t = emcee.EnsembleSampler(
+                self.nwalkers,
+                self.ndim,
+                self.my_probs_fn[t],
+                pool=self.pool,
+                moves=self.moves[t],
+                backend=backend_t,
+                vectorize=self.vectorize[t],
+                blobs_dtype=self.blobs_dtype[t],
+            )
+            self.sampler.append(sampler_t)
+
+            # Load last state if available and do not reset
+            if backend_t is not None and backend_t.iteration > 0 and not reset_backend:
+                last_chain = backend_t.get_chain(discard=backend_t.iteration - 1)
+                last_log_prob = backend_t.get_log_prob(discard=backend_t.iteration - 1)
+                last_blobs = backend_t.get_blobs(discard=backend_t.iteration - 1)
+
+                last_state = emcee.State(
+                    coords=last_chain[0],
+                    log_prob=last_log_prob[0],
+                    blobs=last_blobs[0] if last_blobs is not None else None,
+                )
+
+                self.last_states.append(last_state)
+            else:
+                self.last_states.append(None)
+
+        self.sampler = np.array(self.sampler)
 
 
-    def sample(self,
-               initial_state,
-               iterations=1,
-               tune=False,
-               skip_initial_state_check=False,
-               thin_by=1,
-               thin=None,
-               store=True,
-               progress=False,
-               progress_kwargs=None):
+    def sample(
+        self,
+        initial_state=None,
+        iterations=1,
+        tune=False,
+        skip_initial_state_check=False,
+        thin_by=1,
+        thin=None,
+        store=True,
+        progress=False,
+        progress_kwargs=None,
+    ):
+
+        if initial_state is None:
+            initial_state = self.last_states
 
         self.samp = initial_state
 
         for t in range(self.ntemps):
             sampler_t = self[t]
-            #samp_t = self.samp[t]
-            for self.samp[t] in sampler_t.sample(self.samp[t],
-                                               iterations=iterations,
-                                               tune=tune,
-                                               skip_initial_state_check=skip_initial_state_check,
-                                               thin_by=thin_by,
-                                               thin=thin,
-                                               store=store,
-                                               progress=progress,
-                                               progress_kwargs=progress_kwargs):
+
+            # Use the last state if available, otherwise use the provided initial state
+            state_t = (
+                self.last_states[t] if self.last_states[t] is not None else self.samp[t]
+            )
+
+            for self.samp[t] in sampler_t.sample(
+                state_t,
+                iterations=iterations,
+                tune=tune,
+                skip_initial_state_check=skip_initial_state_check,
+                thin_by=thin_by,
+                thin=thin,
+                store=store,
+                progress=progress,
+                progress_kwargs=progress_kwargs,
+            ):
                 pass
 
+            # Update the last state
+            self.last_states[t] = self.samp[t]
 
         if self.betas_history_bool:
             self.betas_history = np.append(self.betas_history, self.betas)
@@ -204,22 +299,28 @@ class PTSampler(object):
         yield self.samp
 
 
-    def run_mcmc(self, initial_state, nsweeps, nsteps, progress=True):
-        if initial_state is None:
-            print('Initial state is none')
-            if self.__previous_state[0] is None:
-                raise ValueError(
-                    "Cannot have `initial_state=None` if run_mcmc has never "
-                    "been called.")
-            initial_state = self.__previous_state
+
+    def run_mcmc(
+        self,
+        initial_state=None,
+        nsweeps=1,
+        nsteps=1,
+        progress=True,
+        reset_backend=False,
+    ):
+        if reset_backend:
+            for t in range(self.ntemps):
+                if self.backend[t] is not None:
+                    self.backend[t].reset(self.nwalkers, self.ndim)
+            self.last_states = [None] * self.ntemps
 
         results = None
-        
 
-        pbar = tqdm(total=nsteps*nsweeps, disable=not progress)
+        pbar = tqdm(total=nsteps * nsweeps, disable=not progress)
         for _ in range(nsweeps):
             for results in self.sample(initial_state, iterations=nsteps):
                 pbar.update(nsteps)
+            initial_state = None  # Use last state for subsequent sweeps
 
         pbar.close()
 
@@ -228,26 +329,34 @@ class PTSampler(object):
 
     def temp_swaps_(self):
         dbetas = self.betas[:-1] - self.betas[1:]
-        for t in range(self.ntemps-1, 0, -1):
-            dbeta = dbetas[t-1]
+        for t in range(self.ntemps - 1, 0, -1):
+            dbeta = dbetas[t - 1]
 
             ll1 = self.samp[t].blobs  # hot
-            ll2 = self.samp[t-1].blobs  # cold
+            ll2 = self.samp[t - 1].blobs  # cold
 
             raccept = np.log(np.random.uniform(size=self.nwalkers))
             paccept = dbeta * (ll1 - ll2)
 
             asel = paccept > raccept
 
-            self.n_swap_accept[t-1] = np.sum(asel)
+            self.n_swap_accept[t - 1] = np.sum(asel)
 
-            self.samp[t].coords[asel], self.samp[t-1].coords[asel] = self.samp[t-1].coords[asel], self.samp[t].coords[asel]
-            self.samp[t].log_prob[asel], self.samp[t-1].log_prob[asel] = self.samp[t-1].log_prob[asel] - dbeta*ll2[asel], self.samp[t].log_prob[asel] + dbeta*ll1[asel]
-            self.samp[t].blobs[asel], self.samp[t-1].blobs[asel] = ll2[asel], ll1[asel]
-            
+            self.samp[t].coords[asel], self.samp[t - 1].coords[asel] = (
+                self.samp[t - 1].coords[asel],
+                self.samp[t].coords[asel],
+            )
+            self.samp[t].log_prob[asel], self.samp[t - 1].log_prob[asel] = (
+                self.samp[t - 1].log_prob[asel] - dbeta * ll2[asel],
+                self.samp[t].log_prob[asel] + dbeta * ll1[asel],
+            )
+            self.samp[t].blobs[asel], self.samp[t - 1].blobs[asel] = (
+                ll2[asel],
+                ll1[asel],
+            )
+
         self.ratios = self.n_swap_accept / self.nwalkers
         self.ratios_history = np.append(self.ratios_history, self.ratios[::-1])
-        
 
     def ladder_adjustment(self):
         # sourcery skip: remove-redundant-pass
@@ -260,14 +369,16 @@ class PTSampler(object):
         time = self.time0 + self[0].iteration
 
         # Modulate temperature adjustments with a hyperbolic decay.
-        decay = self.config_adaptation_halflife / (time + self.config_adaptation_halflife)
-        
+        decay = self.config_adaptation_halflife / (
+            time + self.config_adaptation_halflife
+        )
+
         decay = self.decay_fn(decay)
         # decay 1
-        #decay *= 1/(np.exp(-np.std(betas)))
+        # decay *= 1/(np.exp(-np.std(betas)))
 
         # decay 2
-        #decay *= 1/(1-np.std(betas))
+        # decay *= 1/(1-np.std(betas))
 
         kappa = decay / self.config_adaptation_rate
 
@@ -281,11 +392,10 @@ class PTSampler(object):
 
         dbetas = betas - self.betas
         self.betas = betas
-        for t in range(self.ntemps-1, 0, -1):
+        for t in range(self.ntemps - 1, 0, -1):
             self.my_probs_fn[t].beta = self.betas[t]
             self.samp[t].log_prob += self.samp[t].blobs * dbetas[t]
         pass
-
 
     def calc_decay0(self, decay):
         return decay
@@ -294,13 +404,13 @@ class PTSampler(object):
         return decay / (np.exp(-np.std(self.ratios)))
 
     def calc_decay2(self, decay):
-        #ratios = 
-        #afc = abs(np.mean(self.ratios)-self.ratios[:-1])/np.std(self.ratios)
-        #return decay * afc
-        return decay / (1-np.std(self.ratios))
-    
+        # ratios =
+        # afc = abs(np.mean(self.ratios)-self.ratios[:-1])/np.std(self.ratios)
+        # return decay * afc
+        return decay / (1 - np.std(self.ratios))
+
     def select_decay(self, option=0):
-        self.decay_fn = getattr(self, f'calc_decay{option}')
+        self.decay_fn = getattr(self, f"calc_decay{option}")
 
     def thermodynamic_integration_classic(self, discard=1):
         logls0 = self.get_logls(flat=True, discard=discard)
@@ -322,11 +432,10 @@ class PTSampler(object):
 
         return logZ1, np.abs(logZ1 - logZ2)
 
-
     def thermodynamic_integration(self, discard=1):
-        '''
+        """
         Method to get Z and its error.
-        '''
+        """
 
         # SORT BETAS AND LOGLS
         x = deepcopy(self.betas)[::-1]
@@ -338,16 +447,16 @@ class PTSampler(object):
             x = np.concatenate(([0], x))
             logls1 = np.concatenate(([logls1[0]], logls1))
 
-        
         # get logL means
         y = np.mean(logls1, axis=1)
 
         # support variables
         n = np.array([len(l) for l in logls1])
-        tau = np.array([integrated_time(logls1[i], c=5, tol=5, quiet=False)
-                      for i in range(len(y))]).flatten()
+        tau = np.array(
+            [integrated_time(logls1[i], c=5, tol=5, quiet=False) for i in range(len(y))]
+        ).flatten()
 
-        neff = n/tau
+        neff = n / tau
 
         d1 = np.diff(x)
         stdyn = np.std(logls1, axis=1, ddof=1) / np.sqrt(neff)
@@ -375,61 +484,61 @@ class PTSampler(object):
 
         integral_trapz = np.trapz(mean_interpolated, xnew)
 
-        z_classic, zerr_classic = self.thermodynamic_integration_classic(discard=discard)
+        z_classic, zerr_classic = self.thermodynamic_integration_classic(
+            discard=discard
+        )
         err_disc = abs(z_classic - integral_trapz)
 
-        err_samp = 1/num_grid**2 * (1/4*std_interpolated[0]**2 +
-                                    np.sum(std_interpolated[1:-1]**2) +
-                                    1/4*std_interpolated[-1]**2)
+        err_samp = (
+            1
+            / num_grid**2
+            * (
+                1 / 4 * std_interpolated[0] ** 2
+                + np.sum(std_interpolated[1:-1] ** 2)
+                + 1 / 4 * std_interpolated[-1] ** 2
+            )
+        )
         err_samp = np.sqrt(err_samp)
-        err = np.sqrt(err_disc**2+err_samp**2)
+        err = np.sqrt(err_disc**2 + err_samp**2)
 
         return integral_trapz, err, err_disc, err_samp
 
-
     def reset(self):
         self.time0 += self[0].iteration
-        
+
         for s in self:
             s.reset()
 
         self.ratios = None
         self.betas_history = [[] for _ in range(self.ntemps)]
         self.ratios_history = np.array([])
-        
 
     def get_attr(self, x):
         return np.array([getattr(sampler_instance, x) for sampler_instance in self])
 
-
     def get_func(self, x, kwargs=None):
         if kwargs is None:
             kwargs = {}
-        return np.array([getattr(sampler_instance, x)(**kwargs) for sampler_instance in self])
-
+        return np.array(
+            [getattr(sampler_instance, x)(**kwargs) for sampler_instance in self]
+        )
 
     def get_chains(self, **kwargs):
-        return self.get_func('get_chain', kwargs=kwargs)
-
+        return self.get_func("get_chain", kwargs=kwargs)
 
     def get_logls(self, **kwargs):
-        return self.get_func('get_blobs', kwargs=kwargs)
+        return self.get_func("get_blobs", kwargs=kwargs)
 
-    
     def get_log_probs(self, **kwargs):
-        return self.get_func('get_log_prob', kwargs=kwargs)
-
+        return self.get_func("get_log_prob", kwargs=kwargs)
 
     def __str__(self):
-        return 'My sampler, ntemps = %i' % self.ntemps
-
+        return "My sampler, ntemps = %i" % self.ntemps
 
     def __getitem__(self, n):
         return self.sampler[n]
 
-
     def __setitem__(self, n, thing):
         self.sampler[n] = thing
-
 
     pass
